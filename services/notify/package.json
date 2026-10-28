@@ -1,0 +1,23 @@
+{
+  "name": "docflow-notify",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Receives signed DocFlow job webhooks and keeps the latest events.",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "test": "tsc && node --test dist/store.spec.js dist/signature.spec.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "11.2.8",
+    "@nestjs/core": "11.2.8",
+    "@nestjs/platform-express": "11.2.8",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.3",
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

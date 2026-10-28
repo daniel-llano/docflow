@@ -1,0 +1,116 @@
+# Local stack: PostgreSQL, Redis, API on :8086, worker, webhook receiver on :8090, web app on :3006.
+# Passwords and keys here are for this machine only.
+name: docflow
+
+x-api-env: &api-env
+  APP_ENV: production
+  DATABASE_URL: postgresql+psycopg://docflow:docflow_local@postgres:5432/docflow
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: local-compose-signing-key-replace-before-deploying
+  INTERNAL_KEY: local-compose-internal-key-replace-me
+  WEBHOOK_URL: http://notify:8090/webhooks/jobs
+  WEBHOOK_SECRET: local-compose-webhook-secret-replace-me
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: docflow-postgres
+    environment:
+      POSTGRES_USER: docflow
+      POSTGRES_PASSWORD: docflow_local
+      POSTGRES_DB: docflow
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docflow -d docflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:8-alpine
+    container_name: docflow-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: ..
+    container_name: docflow-migrate
+    command: ["alembic", "upgrade", "head"]
+    environment: *api-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ..
+    container_name: docflow-api
+    environment: *api-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - "8086:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  worker:
+    build:
+      context: ..
+    container_name: docflow-worker
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *api-env
+      API_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notify:
+    build:
+      context: ../services/notify
+    container_name: docflow-notify
+    environment:
+      WEBHOOK_SECRET: local-compose-webhook-secret-replace-me
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: ../apps/web
+      args:
+        API_INTERNAL_URL: http://api:8080
+    container_name: docflow-web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3006:3000"
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  redis_data:
